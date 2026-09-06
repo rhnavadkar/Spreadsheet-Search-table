@@ -1,0 +1,104 @@
+*{box-sizing:border-box}
+  body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:#f4f7fb;color:#1f2937}
+  .app{max-width:1600px;margin:0 auto;padding:22px}
+  .header{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:white;border-radius:16px;padding:22px 24px;margin-bottom:16px}
+  .header-main{display:flex;justify-content:space-between;align-items:center;gap:22px;flex-wrap:wrap}
+  .header h1{margin:0 0 5px;font-size:27px}
+  .header p{margin:0;opacity:.9}
+  .contact-box{background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.25);border-radius:11px;padding:10px 14px;min-width:255px;font-size:13px;line-height:1.65}
+  .contact-title{font-size:15px;font-weight:700;margin-bottom:2px}
+  .developer-top{font-size:11px;opacity:.82;margin-top:2px}
+
+  .toolbar{background:white;border:1px solid #dbe3ef;border-radius:14px;padding:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;box-shadow:0 3px 12px rgba(30,58,138,.06)}
+  .file-label,.btn{border:0;border-radius:9px;padding:10px 15px;font-weight:600;cursor:pointer;font-size:14px}
+  .file-label{background:#2563eb;color:white}
+  .btn{background:#e8eef8;color:#1e3a8a}
+  .btn:hover,.file-label:hover{filter:brightness(.96)}
+  input[type=file]{display:none}
+  .global{flex:1;min-width:250px;border:1px solid #cbd5e1;border-radius:9px;padding:11px 13px;font-size:14px;outline:none}
+  .global:focus,.filter:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+  .file-name{font-size:13px;color:#64748b;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .status{margin:8px 2px 12px;color:#475569;font-size:14px}
+
+  .sheet-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .sheet-tab{border:1px solid #cbd5e1;background:white;padding:7px 12px;border-radius:8px;cursor:pointer}
+  .sheet-tab.active{background:#dbeafe;color:#1d4ed8;border-color:#93c5fd;font-weight:700}
+
+  .table-wrap{background:white;border:1px solid #dbe3ef;border-radius:14px;overflow:auto;box-shadow:0 3px 12px rgba(30,58,138,.06);max-height:68vh}
+  table{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%}
+  th,td{border-right:1px solid #e5e7eb;border-bottom:1px solid #e5e7eb;padding:9px 11px;text-align:left;white-space:nowrap;max-width:420px;overflow:hidden;text-overflow:ellipsis}
+  thead th{position:sticky;top:0;background:#eef4ff;z-index:3;color:#173b7a;min-width:120px}
+  .head-row{cursor:pointer; user-select: none;}
+  .head-row:hover{background:#e3edff}
+  .filter-row th{background:white;position:sticky;top:39px;z-index:3;padding:6px}
+  .filter{width:100%;min-width:100px;border:1px solid #cbd5e1;border-radius:7px;padding:8px;font-size:13px;outline:none}
+  tbody tr:nth-child(even){background:#f8fafc}
+  tbody tr:hover{background:#eff6ff}
+  .empty{padding:45px;text-align:center;color:#64748b}
+
+  .pagination{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;padding:14px}
+  .page-btn{border:1px solid #cbd5e1;background:white;border-radius:7px;padding:7px 11px;cursor:pointer}
+  .page-btn.active{background:#2563eb;color:white;border-color:#2563eb}
+  .page-btn:disabled{opacity:.45;cursor:not-allowed}
+  .footer{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;color:#64748b;font-size:13px;margin-top:8px}
+  .developer{text-align:right;font-size:12px;color:#94a3b8;margin-top:10px}
+  .sort{font-size:11px;margin-left:5px;display:inline-block;min-width:12px;}
+  .sort.active-sort{color:#1d4ed8;font-weight:bold;}
+
+
+
+
+  .record-summary{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    flex-wrap:wrap;
+    margin:4px 2px 10px;
+    font-size:14px;
+    font-weight:700;
+  }
+  .record-summary span{
+    background:white;
+    border:1px solid #dbe3ef;
+    border-radius:8px;
+    padding:7px 12px;
+    box-shadow:0 2px 7px rgba(30,58,138,.05);
+  }
+  #matchingCount{color:#1d4ed8}
+  #totalCount{color:#475569}
+
+  .file-info{
+    display:flex;align-items:center;gap:7px;background:white;
+    border:1px solid #dbe3ef;border-radius:10px;padding:9px 13px;
+    margin-bottom:8px;color:#475569;font-size:14px;
+    box-shadow:0 2px 8px rgba(30,58,138,.04)
+  }
+  .file-info-label{color:#64748b;font-weight:600}
+  .file-info strong{color:#1e3a8a;max-width:650px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .download-group{display:flex;align-items:center;gap:7px}
+  .download-card{
+    border:1px solid #dbe3ef;background:white;border-radius:9px;
+    min-width:72px;padding:5px 8px 6px;cursor:pointer;
+    display:flex;align-items:center;gap:5px;color:#1e3a8a;
+    font-weight:700;font-size:12px;box-shadow:0 2px 5px rgba(15,23,42,.05)
+  }
+  .download-card:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(15,23,42,.10)}
+  .download-icon{width:25px;height:29px;display:inline-flex}
+  .download-icon svg{width:100%;height:100%}
+  .xls-icon{color:#25a84a}.csv-icon{color:#3b82f6}.pdf-icon{color:#ef1717}
+
+  .column-menu{position:absolute;z-index:20;background:white;border:1px solid #cbd5e1;border-radius:10px;padding:12px;box-shadow:0 8px 24px rgba(15,23,42,.16);max-height:360px;overflow:auto;min-width:230px}
+  .column-menu label{display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:13px;cursor:pointer}
+  .column-menu .menu-title{font-weight:700;color:#173b7a;margin-bottom:7px;padding-bottom:7px;border-bottom:1px solid #e5e7eb}
+  .column-menu .menu-actions{display:flex;gap:6px;margin-top:8px;border-top:1px solid #e5e7eb;padding-top:8px}
+  .column-menu .menu-actions button{border:1px solid #cbd5e1;background:#f8fafc;border-radius:6px;padding:5px 8px;cursor:pointer;font-size:12px}
+  .toolbar{position:relative}
+  th.hidden-col,td.hidden-col{display:none !important;width:0 !important;min-width:0 !important;padding:0 !important;border:0 !important}
+  th,td{font-family:"Noto Sans Devanagari","Nirmala UI","Mangal","Segoe UI",Arial,sans-serif}
+
+  @media(max-width:700px){
+    .app{padding:10px}
+    .header h1{font-size:22px}
+    .global{min-width:100%}
+    .contact-box{min-width:100%}
+  }
