@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Spreadsheet Search Table</title>
+<title>Excel Search Table</title>
 <link rel="stylesheet" href="Spreadsheet_Search_Table.css">
 
 </head>
@@ -30,8 +30,25 @@
     <label class="file-label" for="excelFile">📁 Choose Spreadsheet</label>
     <input id="excelFile" type="file" accept=".xlsx,.xls,.csv,.ods">
     <input id="globalSearch" class="global" type="search" placeholder="🔎 Search all columns...">
-    <button id="clearBtn" class="btn" type="button">✕ Clear Filters</button>
+    <select id="searchMode" class="search-mode" title="Choose search mode" aria-label="Search mode">
+      <option value="contains">Contains</option>
+      <option value="exact">Exact match</option>
+      <option value="starts">Starts with</option>
+      <option value="ends">Ends with</option>
+    </select>
+    <button id="resetViewBtn" class="btn" type="button">↻ Reset View</button>
+    <button id="freezeBtn" class="btn" type="button">🧊 Freeze First</button>
+    <button id="themeBtn" class="theme-corner" type="button" title="Switch to dark mode" aria-label="Switch to dark mode">🌙</button>
     <button id="columnsBtn" class="btn" type="button">☷ Columns</button>
+    <button id="toolsBtn" class="btn" type="button">⚙ Tools</button>
+    <div id="toolsMenu" class="tools-menu" hidden>
+      <div class="menu-title">Tools</div>
+      <button id="statsBtn" type="button">📊 Statistics</button>
+      <button id="duplicateBtn" type="button">🔍 Find Duplicates</button>
+      <button id="qualityBtn" type="button">✓ Data Quality</button>
+      <button id="selectModeBtn" type="button">☑ Select Rows</button>
+      <button id="printBtn" type="button">🖨 Print View</button>
+    </div>
     <div class="download-group" aria-label="Download options">
       <button id="exportExcelBtn" class="download-card" type="button" title="Download Excel">
         <span class="download-icon xls-icon">
@@ -75,22 +92,30 @@
     <strong id="fileName">No file selected</strong>
   </div>
   <div id="sheetTabs" class="sheet-tabs"></div>
-  <div id="recordSummary" class="record-summary">
-    <span id="matchingCount">0 Matching records</span>
-    <span id="totalCount">0 Total Records</span>
+
+  <div id="toolPanel" class="tool-panel" hidden></div>
+
+  <div class="table-bottom-bar">
+    <div id="recordInfo" class="record-info"></div>
+    <div class="data-summary">
+      <span id="matchingCount">0 Matching</span>
+      <span id="totalCount">0 Total</span>
+      <span id="columnCount">0 Columns</span>
+      <span id="filterCount">0 Filters</span>
+    </div>
+    <div class="data-zoom">
+      <button id="zoomOutBtn" type="button" aria-label="Zoom out">−</button>
+      <span id="zoomLabel">100%</span>
+      <button id="zoomInBtn" type="button" aria-label="Zoom in">+</button>
+    </div>
+    <div class="pagination" id="pagination"></div>
   </div>
-  <div id="status" class="status">Upload an Excel, CSV or ODS file to begin.</div>
 
   <div class="table-wrap">
     <table id="dataTable">
       <thead></thead>
       <tbody><tr><td class="empty">Your spreadsheet data will appear here.</td></tr></tbody>
     </table>
-  </div>
-
-  <div class="footer">
-    <div id="recordInfo">🔎 0 matching records</div>
-    <div class="pagination" id="pagination"></div>
   </div>
   <div class="developer">Spreadsheet Search Table • Developer: Ravi Navadkar</div>
 </div>
@@ -102,7 +127,7 @@
 (() => {
   const fileInput=document.getElementById('excelFile');
   const globalSearch=document.getElementById('globalSearch');
-  const clearBtn=document.getElementById('clearBtn');
+  const searchMode=document.getElementById('searchMode');
   const exportExcelBtn=document.getElementById('exportExcelBtn');
   const fileName=document.getElementById('fileName');
   const status=document.getElementById('status');
@@ -115,10 +140,30 @@
    const matchingCount=document.getElementById('matchingCount');
    const totalCount=document.getElementById('totalCount');
   const sheetTabs=document.getElementById('sheetTabs');
+  const filterCount=document.getElementById('filterCount');
+  const columnCount=document.getElementById('columnCount');
+  const resetViewBtn=document.getElementById('resetViewBtn');
+  const freezeBtn=document.getElementById('freezeBtn');
+  const themeBtn=document.getElementById('themeBtn');
+  const toolsBtn=document.getElementById('toolsBtn');
+  const toolsMenu=document.getElementById('toolsMenu');
+  const toolPanel=document.getElementById('toolPanel');
+  const statsBtn=document.getElementById('statsBtn');
+  const duplicateBtn=document.getElementById('duplicateBtn');
+  const qualityBtn=document.getElementById('qualityBtn');
+  const selectModeBtn=document.getElementById('selectModeBtn');
+  const printBtn=document.getElementById('printBtn');
+  const zoomOutBtn=document.getElementById('zoomOutBtn');
+  const zoomInBtn=document.getElementById('zoomInBtn');
+  const zoomLabel=document.getElementById('zoomLabel');
 
   let workbook=null, sheets={}, currentSheet='', headers=[], rows=[];
-  let filters=[], sortCol=-1, sortDir=1, page=1, visibleCols=[];
+  let selectedRows=new Set(), selectMode=false;
+  let duplicateIndexes=new Set();
+  let filters=[], sortCol=-1, sortDir=1, page=1, visibleCols=[], columnOrder=[];
+  let freezeFirst=false, darkMode=false, dataZoom=1;
   const pageSize=50;
+  const zoomSteps=Array.from({length:11},(_,i)=>(50+i*10)/100);
 
   function esc(v){
     return String(v ?? '').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
@@ -142,20 +187,42 @@
 
     filters=Array(headers.length).fill('');
     visibleCols=Array(headers.length).fill(true);
+    columnOrder=Array.from({length:headers.length},(_,i)=>i);
     sortCol=-1;
     sortDir=1;
     page=1;
+    duplicateIndexes=new Set();
     render();
   }
 
   function filteredRows(){
     const g=normalize(globalSearch.value);
 
+    const mode = searchMode ? searchMode.value : 'contains';
+
+    const matchesSearch=(value,term)=>{
+      const v=normalize(value);
+      const t=normalize(term);
+      if(!t) return true;
+
+      switch(mode){
+        case 'exact':
+          return v === t;
+        case 'starts':
+          return v.startsWith(t);
+        case 'ends':
+          return v.endsWith(t);
+        case 'contains':
+        default:
+          return v.includes(t);
+      }
+    };
+
     let out=rows.filter(row=>{
-      if(g && !row.some(v=>normalize(v).includes(g))) return false;
+      if(g && !row.some((v,i)=>visibleCols[i]!==false && matchesSearch(v,g))) return false;
 
       for(let i=0;i<filters.length;i++){
-        if(filters[i] && !normalize(row[i]).includes(normalize(filters[i]))) return false;
+        if(visibleCols[i]!==false && filters[i] && !normalize(row[i]).includes(normalize(filters[i]))) return false;
       }
       return true;
     });
@@ -163,11 +230,27 @@
     if(sortCol>=0){
       out=[...out].sort((a,b)=>{
         const A=normalize(a[sortCol]), B=normalize(b[sortCol]);
-        const nA=Number(A.replace(/,/g,'')), nB=Number(B.replace(/,/g,''));
 
-        if(A!=='' && B!=='' && Number.isFinite(nA) && Number.isFinite(nB)){
-          return (nA-nB)*sortDir;
-        }
+        const parseNumber=v=>{
+          const cleaned=v.replace(/,/g,'').replace(/₹|rs\.?/g,'').replace(/%$/,'').trim();
+          return cleaned!=='' && /^[-+]?\d+(?:\.\d+)?$/.test(cleaned) ? Number(cleaned) : NaN;
+        };
+        const parseDate=v=>{
+          if(!v) return NaN;
+          const m=v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+          if(m) return new Date(Number(m[3]),Number(m[2])-1,Number(m[1])).getTime();
+          const t=Date.parse(v);
+          return Number.isFinite(t) ? t : NaN;
+        };
+
+        const nA=parseNumber(A), nB=parseNumber(B);
+        if(Number.isFinite(nA) && Number.isFinite(nB)) return (nA-nB)*sortDir;
+
+        const dA=parseDate(A), dB=parseDate(B);
+        if(Number.isFinite(dA) && Number.isFinite(dB)) return (dA-dB)*sortDir;
+
+        if(A==='' && B!=='') return 1*sortDir;
+        if(A!=='' && B==='') return -1*sortDir;
 
         return A.localeCompare(B,undefined,{numeric:true,sensitivity:'base'})*sortDir;
       });
@@ -185,6 +268,21 @@
     });
   }
 
+  function applyViewOptions(){
+    table.classList.toggle('freeze-first',freezeFirst);
+    freezeBtn.textContent=freezeFirst?'🧊 Unfreeze First':'🧊 Freeze First';
+    table.style.setProperty('--data-font-scale',dataZoom);
+    if(zoomLabel) zoomLabel.textContent=Math.round(dataZoom*100)+'%';
+    if(zoomOutBtn) zoomOutBtn.disabled=dataZoom<=zoomSteps[0];
+    if(zoomInBtn) zoomInBtn.disabled=dataZoom>=zoomSteps[zoomSteps.length-1];
+  }
+
+  function updateFilterSummary(){
+    const active=filters.filter(v=>String(v||'').trim()).length+(normalize(globalSearch.value)?1:0);
+    if(filterCount) filterCount.textContent=`${active} Active filter${active===1?'':'s'}`;
+    if(columnCount) columnCount.textContent=`${headers.length} Column${headers.length===1?'':'s'}`;
+  }
+
   function render(){
     renderColumnVisibility();
     thead.innerHTML='';
@@ -193,7 +291,7 @@
 
     if(!headers.length){
       tbody.innerHTML='<tr><td class="empty">No tabular data found in this sheet.</td></tr>';
-      status.textContent='No data found.';
+      if(status) status.textContent='No data found.';
       recordInfo.textContent='0 matching records';
        if(matchingCount) matchingCount.textContent='0 Matching records';
        if(totalCount) totalCount.textContent='0 Total Records';
@@ -203,7 +301,15 @@
     const hr=document.createElement('tr');
     hr.className='head-row';
 
-    headers.forEach((h,i)=>{
+    if(selectMode){
+      const sth=document.createElement('th');
+      sth.className='select-col';
+      sth.innerHTML='<input id="selectAllRows" type="checkbox" title="Select all visible rows">';
+      hr.appendChild(sth);
+    }
+
+    columnOrder.forEach(i=>{
+      const h=headers[i];
       const th=document.createElement('th');
       // Added persistent sorting icon for every field
       const sortIcon = sortCol === i ? (sortDir === 1 ? '▲' : '▼') : '↕';
@@ -228,7 +334,14 @@
     const fr=document.createElement('tr');
     fr.className='filter-row';
 
-    headers.forEach((h,i)=>{
+    if(selectMode){
+      const sf=document.createElement('th');
+      sf.className='select-col';
+      fr.appendChild(sf);
+    }
+
+    columnOrder.forEach(i=>{
+      const h=headers[i];
       const th=document.createElement('th');
       const input=document.createElement('input');
 
@@ -238,8 +351,12 @@
       input.value=filters[i]||'';
       input.setAttribute('aria-label','Search '+h);
  
+      input.dataset.columnIndex=String(i);
+      if(visibleCols[i]===false) th.classList.add('hidden-col');
+
       input.addEventListener('input',e=>{
-        filters[i]=e.target.value;
+        const columnIndex=Number(e.currentTarget.dataset.columnIndex);
+        filters[columnIndex]=e.currentTarget.value;
         page=1;
         renderBodyOnly();
       });
@@ -255,38 +372,26 @@
 
   function autoAdjustColumns(){
     if(!headers.length) return;
-
     const headerCells=[...thead.querySelectorAll('.head-row th')];
     const filterCells=[...thead.querySelectorAll('.filter-row th')];
     const bodyRows=[...tbody.querySelectorAll('tr')];
-
-    headerCells.forEach((th,i)=>{
-      let longest=String(headers[i]||'').length;
-
-      const filterInput=filterCells[i]?.querySelector('input');
-      if(filterInput) longest=Math.max(longest,filterInput.value.length,8);
-
+    columnOrder.forEach((colIndex,pos)=>{
+      const off=selectMode?1:0;
+      const th=headerCells[pos+off], fth=filterCells[pos+off];
+      if(!th) return;
+      let longest=String(headers[colIndex]||'').length;
+      const fi=fth?.querySelector('input');
+      if(fi) longest=Math.max(longest,fi.value.length,8);
       bodyRows.slice(0,50).forEach(tr=>{
-        if(tr.cells[i]){
-          longest=Math.max(longest,String(tr.cells[i].textContent||'').length);
-        }
+        const cell=tr.cells[pos+off];
+        if(cell) longest=Math.max(longest,String(cell.textContent||'').length);
       });
-
       const width=Math.min(420,Math.max(120,longest*8+30));
-
-      th.style.width=width+'px';
-      th.style.minWidth=width+'px';
-
-      if(filterCells[i]){
-        filterCells[i].style.width=width+'px';
-        filterCells[i].style.minWidth=width+'px';
-      }
-
+      th.style.width=th.style.minWidth=width+'px';
+      if(fth) fth.style.width=fth.style.minWidth=width+'px';
       bodyRows.forEach(tr=>{
-        if(tr.cells[i]){
-          tr.cells[i].style.width=width+'px';
-          tr.cells[i].style.minWidth=width+'px';
-        }
+        const cell=tr.cells[pos+off];
+        if(cell) cell.style.width=cell.style.minWidth=width+'px';
       });
     });
   }
@@ -304,15 +409,49 @@
     tbody.innerHTML='';
 
     if(!visible.length){
-      tbody.innerHTML=`<tr><td class="empty" colspan="${headers.length}">No matching records found.</td></tr>`;
+      tbody.innerHTML=`<tr><td class="empty" colspan="${headers.length+(selectMode?1:0)}">No matching records found.</td></tr>`;
     }else{
       visible.forEach(row=>{
         const tr=document.createElement('tr');
+        const rowIndex=rows.indexOf(row);
+        if(selectedRows.has(rowIndex)) tr.classList.add('selected-row');
+        if(duplicateIndexes.has(rowIndex)) tr.classList.add('duplicate-row');
 
-        row.forEach((v,i)=>{
+        if(selectMode){
+          const st=document.createElement('td');
+          st.className='select-col';
+          const cb=document.createElement('input');
+          cb.type='checkbox';
+          cb.checked=selectedRows.has(rowIndex);
+          cb.title='Select this record';
+          cb.addEventListener('change',()=>{
+            if(cb.checked) selectedRows.add(rowIndex);
+            else selectedRows.delete(rowIndex);
+            tr.classList.toggle('selected-row',cb.checked);
+            updateSelectionSummary();
+          });
+          st.appendChild(cb);
+          tr.appendChild(st);
+        }
+
+        columnOrder.forEach(i=>{
+          const v=row[i];
           const td=document.createElement('td');
-          td.textContent=String(v??'');
-          td.title=String(v??'');
+          const value=String(v??'');
+          td.title=value;
+          let cellHtml=esc(value);
+          const terms=[];
+          if(normalize(globalSearch.value)) terms.push(globalSearch.value.trim());
+          if(visibleCols[i]!==false && filters[i]) terms.push(filters[i].trim());
+          terms.filter(Boolean).forEach(term=>{
+            const safe=term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+            let pattern=safe;
+            if(searchMode && searchMode.value==='exact') pattern=`^${safe}$`;
+            else if(searchMode && searchMode.value==='starts') pattern=`^${safe}`;
+            else if(searchMode && searchMode.value==='ends') pattern=`${safe}$`;
+            cellHtml=cellHtml.replace(new RegExp(`(${pattern})`,'ig'),'<mark class="search-hit">$1</mark>');
+          });
+          td.innerHTML=cellHtml;
           if(visibleCols[i]===false) td.classList.add('hidden-col');
           tr.appendChild(td);
         });
@@ -321,13 +460,353 @@
       });
     }
 
-    recordInfo.textContent=`Showing ${total?start+1:0}–${Math.min(start+visible.length,total)} of ${total.toLocaleString()} matching records`;
+    if(recordInfo) recordInfo.textContent=`Showing ${total?start+1:0}–${Math.min(start+visible.length,total)} of ${total.toLocaleString()} matching records`;
     if(matchingCount) matchingCount.textContent=`${total.toLocaleString()} Matching records`;
     if(totalCount) totalCount.textContent=`${rows.length.toLocaleString()} Total Records`;
-    status.textContent=`${rows.length.toLocaleString()} total records • ${headers.length} columns • Sheet: ${currentSheet}`;
+    if(status) status.textContent=`${rows.length.toLocaleString()} total records • ${headers.length} columns • Sheet: ${currentSheet}`;
 
+    updateFilterSummary();
+    applyViewOptions();
     renderPagination(pages);
     autoAdjustColumns();
+
+    if(selectMode){
+      const selectAll=document.getElementById('selectAllRows');
+      if(selectAll){
+        const visibleIndexes=visible.map(r=>rows.indexOf(r));
+        selectAll.checked=visibleIndexes.length>0 && visibleIndexes.every(i=>selectedRows.has(i));
+        selectAll.indeterminate=visibleIndexes.some(i=>selectedRows.has(i)) && !selectAll.checked;
+        selectAll.onchange=()=>{
+          visibleIndexes.forEach(i=>selectAll.checked ? selectedRows.add(i) : selectedRows.delete(i));
+          renderBodyOnly();
+        };
+      }
+    }
+    updateSelectionSummary();
+  }
+
+  function updateSelectionSummary(){
+    const selected=selectedRows.size;
+    if(selectMode) selectModeBtn.textContent=`☑ Selected: ${selected}`;
+    else selectModeBtn.textContent='☑ Select Rows';
+  }
+
+  function showToolPanel(title,htmlContent){
+    toolPanel.innerHTML=`<div class="tool-panel-title">${title}<button type="button" class="tool-close" id="toolClose">×</button></div><div class="tool-panel-body">${htmlContent}</div>`;
+    toolPanel.hidden=false;
+    document.getElementById('toolClose').onclick=()=>toolPanel.hidden=true;
+  }
+
+  function numericValues(index){
+    return rows.map(r=>String(r[index]??'').replace(/,/g,'').replace(/₹|rs\.?/gi,'').replace(/%$/,'').trim())
+      .filter(v=>v!=='' && /^[-+]?\d+(?:\.\d+)?$/.test(v)).map(Number);
+  }
+
+  function showStatistics(){
+    if(!headers.length){showToolPanel('Statistics','<p>Please upload a spreadsheet first.</p>');return;}
+    const cards=headers.map((h,i)=>{
+      const nums=numericValues(i);
+      if(!nums.length) return '';
+      const total=nums.reduce((a,b)=>a+b,0);
+      const avg=total/nums.length;
+      return `<div class="stat-card"><strong>${esc(h)}</strong><span>Filled: ${nums.length.toLocaleString()}</span><span>Sum: ${total.toLocaleString(undefined,{maximumFractionDigits:2})}</span><span>Average: ${avg.toLocaleString(undefined,{maximumFractionDigits:2})}</span><span>Min: ${Math.min(...nums).toLocaleString()}</span><span>Max: ${Math.max(...nums).toLocaleString()}</span></div>`;
+    }).filter(Boolean).join('');
+    showToolPanel('Column Statistics',cards||'<p>No numeric columns detected.</p>');
+  }
+
+  function duplicateKey(value, options){
+    let v=String(value??'');
+    if(options.trim) v=v.trim();
+    if(options.caseInsensitive) v=v.toLowerCase();
+    if(options.collapseSpaces) v=v.replace(/\s+/g,' ');
+    return v;
+  }
+
+  function getDuplicateGroups(columns, options){
+    const map=new Map();
+    rows.forEach((row,index)=>{
+      if(options.ignoreBlankRows && row.every(v=>String(v??'').trim()==='')) return;
+      const key=columns.map(i=>duplicateKey(row[i],options)).join('\u001f');
+      if(options.ignoreBlankValues && columns.every(i=>String(row[i]??'').trim()==='')) return;
+      if(!map.has(key)) map.set(key,[]);
+      map.get(key).push(index);
+    });
+    return [...map.values()].filter(group=>group.length>1);
+  }
+
+  function showDuplicates(){
+    if(!headers.length){
+      showToolPanel('Duplicate Finder','<p>Please upload a spreadsheet first.</p>');
+      return;
+    }
+
+    const selectedCols=columnOrder.filter(i=>visibleCols[i]!==false);
+    const colOptions=headers.map((h,i)=>
+      `<label class="duplicate-check"><input type="checkbox" class="duplicate-col" value="${i}" ${selectedCols.includes(i)?'checked':''}> ${esc(h)}</label>`
+    ).join('');
+
+    showToolPanel('Duplicate Finder',`
+      <div class="duplicate-controls">
+        <div class="duplicate-field">
+          <label><strong>Compare by</strong></label>
+          <select id="duplicateScope">
+            <option value="row">Entire row</option>
+            <option value="columns">Selected columns</option>
+        </select>
+        </div>
+
+        <div id="duplicateColumnsBox" class="duplicate-columns-box">
+          <div class="duplicate-subtitle">Choose columns to compare</div>
+          <div class="duplicate-columns">${colOptions}</div>
+        </div>
+
+        <div class="duplicate-options">
+          <label><input id="duplicateCase" type="checkbox" checked> Ignore letter case</label>
+          <label><input id="duplicateTrim" type="checkbox" checked> Ignore leading/trailing spaces</label>
+          <label><input id="duplicateSpaces" type="checkbox" checked> Treat repeated spaces as one</label>
+          <label><input id="duplicateBlank" type="checkbox"> Ignore completely blank rows</label>
+        </div>
+
+        <div class="duplicate-actions">
+          <button id="runDuplicateBtn" class="btn" type="button">🔍 Find Duplicates</button>
+          <button id="clearDuplicateBtn" class="btn" type="button">Clear Result</button>
+        </div>
+      </div>
+      <div id="duplicateResults" class="duplicate-results">
+        <p>Select your options and click <strong>Find Duplicates</strong>.</p>
+      </div>
+    `);
+
+    const scope=document.getElementById('duplicateScope');
+    const columnsBox=document.getElementById('duplicateColumnsBox');
+    const resultBox=document.getElementById('duplicateResults');
+
+    const updateScope=()=>{
+      columnsBox.style.display=scope.value==='columns'?'block':'none';
+    };
+    scope.addEventListener('change',updateScope);
+    updateScope();
+
+    document.getElementById('runDuplicateBtn').onclick=()=>{
+      const checked=[...document.querySelectorAll('.duplicate-col:checked')].map(x=>Number(x.value));
+      const columns=scope.value==='row' ? headers.map((_,i)=>i) : checked;
+
+      if(!columns.length){
+        resultBox.innerHTML='<p class="duplicate-warning">Please select at least one column.</p>';
+        return;
+      }
+
+      const options={
+        caseInsensitive:document.getElementById('duplicateCase').checked,
+        trim:document.getElementById('duplicateTrim').checked,
+        collapseSpaces:document.getElementById('duplicateSpaces').checked,
+        ignoreBlankRows:document.getElementById('duplicateBlank').checked,
+        ignoreBlankValues:false
+      };
+
+      duplicateIndexes=new Set();
+      const groups=getDuplicateGroups(columns,options);
+      groups.forEach(group=>group.forEach(i=>duplicateIndexes.add(i)));
+
+      const duplicateExtra=groups.reduce((sum,g)=>sum+(g.length-1),0);
+      const compareNames=columns.map(i=>headers[i]);
+
+      if(!groups.length){
+        resultBox.innerHTML=`
+          <div class="duplicate-summary no-duplicates">
+            <strong>✓ No duplicates found</strong>
+            <span>${rows.length.toLocaleString()} records checked</span>
+          </div>`;
+      }else{
+        resultBox.innerHTML=`
+          <div class="duplicate-summary">
+            <strong>${groups.length.toLocaleString()} duplicate group${groups.length===1?'':'s'}</strong>
+            <span>${duplicateIndexes.size.toLocaleString()} records involved</span>
+            <span>${duplicateExtra.toLocaleString()} extra duplicate occurrence${duplicateExtra===1?'':'s'}</span>
+          </div>
+          <div class="duplicate-compare">Compared: <strong>${compareNames.map(esc).join(', ')}</strong></div>
+          <div class="duplicate-list">
+            ${groups.slice(0,50).map((g,n)=>`
+              <div class="duplicate-item">
+                <strong>Group ${n+1}</strong>
+                <span>Sr. No.: ${g.map(i=>esc(rows[i][0] ?? (i+1))).join(', ')}</span>
+                <span>Rows: ${g.map(i=>i+1).join(', ')}</span>
+                <span>Occurrences: ${g.length}</span>
+              </div>
+            `).join('')}
+          </div>
+          ${groups.length>50?`<p>Showing first 50 of ${groups.length} groups.</p>`:''}
+          <button id="exportDuplicatesBtn" class="btn duplicate-export" type="button">⬇ Export Duplicate Records</button>
+        `;
+        document.getElementById('exportDuplicatesBtn').onclick=()=>{
+          exportDuplicateRows([...duplicateIndexes]);
+        };
+      }
+
+      page=1;
+      renderBodyOnly();
+    };
+
+    document.getElementById('clearDuplicateBtn').onclick=()=>{
+      duplicateIndexes=new Set();
+      resultBox.innerHTML='<p>Duplicate result cleared. Your spreadsheet data is unchanged.</p>';
+      renderBodyOnly();
+    };
+  }
+
+  function exportDuplicateRows(indexes){
+    if(!indexes.length){
+      alert('There are no duplicate records to export.');
+      return;
+    }
+    const orderedIndices=(Array.isArray(columnOrder) && columnOrder.length===headers.length
+      ? columnOrder
+      : headers.map((_,i)=>i)
+    ).filter(i=>visibleCols[i]!==false);
+
+    const dataRows=indexes.map(i=>rows[i]).filter(Boolean);
+    const exportHeaders=orderedIndices.map(i=>headers[i]);
+    const exportRows=dataRows.map(row=>orderedIndices.map(i=>row[i]));
+    const ws=XLSX.utils.aoa_to_sheet([exportHeaders,...exportRows]);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'Duplicate Records');
+    XLSX.writeFile(wb,'Duplicate_Records.xlsx');
+  }
+
+  function showQuality(){
+    if(!headers.length){showToolPanel('Data Quality','<p>Please upload a spreadsheet first.</p>');return;}
+    let blanks=0;
+    headers.forEach((_,i)=>rows.forEach(r=>{if(String(r[i]??'').trim()==='') blanks++;}));
+    const rowKeys=new Set(rows.map(r=>r.map(v=>normalize(v)).join('\u001f')));
+    const duplicateRows=rows.length-rowKeys.size;
+    const totalCells=rows.length*headers.length;
+    showToolPanel('Data Quality',
+      `<div class="quality-grid">
+        <div><strong>${rows.length.toLocaleString()}</strong><span>Total records</span></div>
+        <div><strong>${totalCells.toLocaleString()}</strong><span>Total cells</span></div>
+        <div><strong>${blanks.toLocaleString()}</strong><span>Blank cells</span></div>
+        <div><strong>${duplicateRows.toLocaleString()}</strong><span>Duplicate records</span></div>
+      </div>`);
+  }
+
+  function printView(){
+    if(!headers.length){alert('Please upload a spreadsheet first.');return;}
+
+    const data=filteredRows();
+
+    // Use the same current order as the spreadsheet and exports.
+    const orderedIndices=(Array.isArray(columnOrder) && columnOrder.length===headers.length
+      ? columnOrder
+      : headers.map((_,i)=>i)
+    );
+    const cols=orderedIndices.filter(i=>visibleCols[i]!==false);
+
+    const printWin=window.open('','_blank','width=1200,height=800');
+    if(!printWin){
+      alert('Please allow pop-ups for this website to use Print View.');
+      return;
+    }
+
+    const safe=s=>esc(String(s??''));
+    const title=`${currentSheet || 'Spreadsheet'} — Print View`;
+    const now=new Date().toLocaleString();
+
+    const theadHtml=cols.map(i=>`<th>${safe(headers[i])}</th>`).join('');
+    const tbodyHtml=data.map(row=>
+      `<tr>${cols.map(i=>`<td>${safe(row[i])}</td>`).join('')}</tr>`
+    ).join('');
+
+    printWin.document.open();
+    printWin.document.write(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>${safe(title)}</title>
+<style>
+  @page{size:auto;margin:10mm}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:"Noto Sans Devanagari","Nirmala UI","Mangal","Segoe UI",Arial,sans-serif;
+    font-size:11px;
+    color:#111;
+    background:#fff;
+  }
+  .print-header{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:20px;
+    margin-bottom:10px;
+    border-bottom:2px solid #222;
+    padding-bottom:7px;
+  }
+  h1{font-size:18px;margin:0 0 3px}
+  .meta{font-size:10px;color:#555}
+  table{
+    width:100%;
+    border-collapse:separate;
+    border-spacing:0;
+    table-layout:auto;
+    border:1.5px solid #333;
+  }
+  thead{display:table-header-group}
+  tr{page-break-inside:avoid}
+  th,td{
+    border:1px solid #777;
+    padding:4px 5px;
+    vertical-align:top;
+    text-align:left;
+    white-space:normal;
+    overflow-wrap:anywhere;
+  }
+  th{
+    background:#eee;
+    font-weight:700;
+  }
+  /* Explicit outer borders ensure the first and last column lines print. */
+  thead tr th:first-child, tbody tr td:first-child{
+    border-left:1.5px solid #333 !important;
+  }
+  thead tr th:last-child, tbody tr td:last-child{
+    border-right:1.5px solid #333 !important;
+  }
+  table{border-left:1.5px solid #333 !important;border-right:1.5px solid #333 !important}
+  .empty{text-align:center;padding:20px}
+  @media print{
+    body{padding-right:1px}
+    table{outline:1px solid #333;outline-offset:-1px}
+  }
+  @media print{
+    .print-header{break-after:avoid}
+  }
+</style>
+</head>
+<body>
+  <div class="print-header">
+    <div>
+      <h1>Spreadsheet Search Table</h1>
+      <div class="meta">${safe(currentSheet || 'Current Sheet')} • ${data.length.toLocaleString()} matching records</div>
+    </div>
+    <div class="meta">Printed: ${safe(now)}</div>
+  </div>
+  <table>
+    <thead><tr>${theadHtml}</tr></thead>
+    <tbody>${tbodyHtml || `<tr><td class="empty" colspan="${Math.max(cols.length,1)}">No matching records.</td></tr>`}</tbody>
+  </table>
+</body>
+</html>`);
+    printWin.document.close();
+
+    printWin.onload=()=>{
+      printWin.focus();
+      setTimeout(()=>printWin.print(),150);
+    };
+  }
+  function exportSelectedRows(){
+    const all=filteredRows();
+    const selected=all.filter(r=>selectedRows.has(rows.indexOf(r)));
+    return selected;
   }
 
   function renderPagination(pages){
@@ -364,6 +843,7 @@
     const menu=document.getElementById('columnMenu');
     menu.innerHTML='';
     if(!headers.length){menu.hidden=true;return;}
+
     const title=document.createElement('div');
     title.className='menu-title';
     title.textContent='Show / Hide Columns';
@@ -383,44 +863,73 @@
       menu.appendChild(label);
     });
 
-    const actions=document.createElement('div');
-    actions.className='menu-actions';
-    const showAll=document.createElement('button');
-    showAll.textContent='Show All';
-    showAll.onclick=()=>{visibleCols=Array(headers.length).fill(true);render();buildColumnMenu();};
-    const hideAll=document.createElement('button');
-    hideAll.textContent='Hide All';
-    hideAll.onclick=()=>{
-      if(headers.length===1) return;
-      visibleCols=Array(headers.length).fill(false);
-      // Keep one column visible so the table never becomes completely empty.
-      visibleCols[0]=true;
-      render();buildColumnMenu();
-    };
-    actions.appendChild(showAll);
-    actions.appendChild(hideAll);
-    menu.appendChild(actions);
-    menu.hidden=false;
+    const divider=document.createElement('div');
+    divider.className='column-menu-divider';
+    menu.appendChild(divider);
+
+    const moveTitle=document.createElement('div');
+    moveTitle.className='menu-title';
+    moveTitle.textContent='↕ Move Columns';
+    menu.appendChild(moveTitle);
+
+    const help=document.createElement('div');
+    help.className='move-help';
+    help.textContent='Drag and drop to change column order.';
+    menu.appendChild(help);
+
+    const list=document.createElement('div');
+    list.className='move-list';
+
+    columnOrder.forEach(colIndex=>{
+      const item=document.createElement('div');
+      item.className='move-item';
+      item.draggable=true;
+      item.dataset.colIndex=String(colIndex);
+      item.innerHTML=`<span class="drag-handle">☷</span><span>${esc(headers[colIndex])}</span>`;
+
+      item.addEventListener('dragstart',e=>{
+        e.dataTransfer.effectAllowed='move';
+        e.dataTransfer.setData('text/plain',String(colIndex));
+        item.classList.add('dragging');
+      });
+      item.addEventListener('dragend',()=>item.classList.remove('dragging'));
+      item.addEventListener('dragover',e=>e.preventDefault());
+      item.addEventListener('drop',e=>{
+        e.preventDefault();
+        const from=Number(e.dataTransfer.getData('text/plain'));
+        const to=Number(item.dataset.colIndex);
+        if(from===to) return;
+        const next=columnOrder.filter(i=>i!==from);
+        const idx=next.indexOf(to);
+        next.splice(idx<0?next.length:idx,0,from);
+        columnOrder=next;
+        render();
+        buildColumnMenu();
+        document.getElementById('columnMenu').hidden=false;
+      });
+      list.appendChild(item);
+    });
+
+    menu.appendChild(list);
   }
 
-  document.getElementById('columnsBtn').addEventListener('click',(e)=>{
-    e.stopPropagation();
-    const menu=document.getElementById('columnMenu');
-    if(menu.hidden) buildColumnMenu(); else menu.hidden=true;
-  });
-
-  document.addEventListener('click',(e)=>{
-    const menu=document.getElementById('columnMenu');
-    const btn=document.getElementById('columnsBtn');
-    if(!menu.contains(e.target) && e.target!==btn) menu.hidden=true;
-  });
-
   function exportDataRows(){
-    const all=filteredRows();
-    const indices=headers.map((_,i)=>i).filter(i=>visibleCols[i]!==false);
+    const all=(selectMode && selectedRows.size) ? exportSelectedRows() : filteredRows();
+
+    // Follow the exact current on-screen column order.
+    // Moving columns changes position only; original values (including serial numbers)
+    // are never renumbered or otherwise changed.
+    const orderedIndices=(Array.isArray(columnOrder) && columnOrder.length===headers.length
+      ? columnOrder
+      : headers.map((_,i)=>i)
+    ).filter(i=>visibleCols[i]!==false);
+
+    const exportHeaders=orderedIndices.map(i=>headers[i]);
+    const exportRows=all.map(row=>orderedIndices.map(i=>row[i]));
+
     return {
-      headers:indices.map(i=>headers[i]),
-      rows:all.map(row=>indices.map(i=>row[i]))
+      headers:exportHeaders,
+      rows:exportRows
     };
   }
 
@@ -470,7 +979,7 @@
     if(!file) return;
 
     fileName.textContent=file.name;
-    status.textContent='Reading spreadsheet file...';
+    if(status) status.textContent='Reading spreadsheet file...';
 
     try{
       const buf=await file.arrayBuffer();
@@ -506,28 +1015,97 @@
       if(workbook.SheetNames.length){
         loadSheet(workbook.SheetNames[0]);
       }else{
-        status.textContent='The workbook contains no sheets.';
+        if(status) status.textContent='The workbook contains no sheets.';
       }
 
     }catch(err){
       console.error(err);
-      status.textContent='Could not read this file. Please select a valid Excel, CSV or ODS workbook.';
+      if(status) status.textContent='Could not read this file. Please select a valid Excel, CSV or ODS workbook.';
       tbody.innerHTML='<tr><td class="empty">Invalid or unsupported file format.</td></tr>';
     }
   });
+
+  resetViewBtn.addEventListener('click',()=>{
+    globalSearch.value='';
+    filters=Array(headers.length).fill('');
+    visibleCols=Array(headers.length).fill(true);
+    columnOrder=Array.from({length:headers.length},(_,i)=>i);
+    sortCol=-1; sortDir=1; page=1; freezeFirst=false; dataZoom=1; duplicateIndexes=new Set();
+    render();
+  });
+
+  freezeBtn.addEventListener('click',()=>{freezeFirst=!freezeFirst;applyViewOptions();});
+  themeBtn.addEventListener('click',()=>{
+    darkMode=!darkMode;
+    document.body.classList.toggle('dark-mode',darkMode);
+    themeBtn.textContent=darkMode?'☀️':'🌙';
+    themeBtn.title=darkMode?'Switch to light mode':'Switch to dark mode';
+    themeBtn.setAttribute('aria-label',themeBtn.title);
+  });
+
+  function setDataZoom(direction){
+    const current=zoomSteps.findIndex(v=>Math.abs(v-dataZoom)<0.001);
+    const next=Math.max(0,Math.min(zoomSteps.length-1,current+direction));
+    dataZoom=zoomSteps[next];
+    applyViewOptions();
+  }
+  zoomOutBtn.addEventListener('click',()=>setDataZoom(-1));
+  zoomInBtn.addEventListener('click',()=>setDataZoom(1));
 
   globalSearch.addEventListener('input',()=>{
     page=1;
     renderBodyOnly();
   });
 
-  clearBtn.addEventListener('click',()=>{
-    globalSearch.value='';
-    filters=Array(headers.length).fill('');
+  searchMode.addEventListener('change',()=>{
     page=1;
-    sortCol=-1;
-    sortDir=1;
+    renderBodyOnly();
+  });
+
+  document.getElementById('columnsBtn').addEventListener('click',(e)=>{
+    e.stopPropagation();
+    const menu=document.getElementById('columnMenu');
+    if(menu.hidden){
+      buildColumnMenu();
+      menu.hidden=false;
+    }else menu.hidden=true;
+  });
+
+  toolsBtn.addEventListener('click',(e)=>{
+    e.stopPropagation();
+    toolsMenu.hidden=!toolsMenu.hidden;
+  });
+  statsBtn.addEventListener('click',()=>{toolsMenu.hidden=true;showStatistics();});
+  duplicateBtn.addEventListener('click',()=>{toolsMenu.hidden=true;showDuplicates();});
+  qualityBtn.addEventListener('click',()=>{toolsMenu.hidden=true;showQuality();});
+  selectModeBtn.addEventListener('click',()=>{
+    selectMode=!selectMode;
+    if(!selectMode) selectedRows.clear();
+    toolsMenu.hidden=true;
     render();
+  });
+  printBtn.addEventListener('click',()=>{toolsMenu.hidden=true;printView();});
+
+  document.addEventListener('click',(e)=>{
+    if(!toolsMenu.contains(e.target) && e.target!==toolsBtn) toolsMenu.hidden=true;
+    const cm=document.getElementById('columnMenu');
+    const cb=document.getElementById('columnsBtn');
+    if(cm && !cm.contains(e.target) && e.target!==cb) cm.hidden=true;
+  });
+
+  document.addEventListener('keydown',e=>{
+    if(e.ctrlKey && e.key.toLowerCase()==='f'){
+      e.preventDefault(); globalSearch.focus(); globalSearch.select();
+    }else if(e.key==='Escape' && document.activeElement===globalSearch){
+      globalSearch.value=''; page=1; renderBodyOnly();
+    }else if(e.ctrlKey && e.key.toLowerCase()==='e'){
+      e.preventDefault(); exportExcelBtn.click();
+    }else if(e.key==='ArrowLeft' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){
+      if(page>1){page--;renderBodyOnly();}
+    }else if(e.key==='ArrowRight' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){
+      const pages=Math.max(1,Math.ceil(filteredRows().length/pageSize));
+      if(page<pages){page++;renderBodyOnly();}
+    }
   });
 
   exportExcelBtn.addEventListener('click',()=>{
