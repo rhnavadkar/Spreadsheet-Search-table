@@ -37,8 +37,7 @@
       <option value="ends">Ends with</option>
     </select>
     <button id="resetViewBtn" class="btn" type="button">↻ Reset View</button>
-    <button id="freezeBtn" class="btn" type="button">🧊 Freeze First</button>
-    <button id="themeBtn" class="theme-corner" type="button" title="Switch to dark mode" aria-label="Switch to dark mode">🌙</button>
+      <button id="themeBtn" class="theme-corner" type="button" title="Switch to dark mode" aria-label="Switch to dark mode">🌙</button>
     <button id="columnsBtn" class="btn" type="button">☷ Columns</button>
     <button id="toolsBtn" class="btn" type="button">⚙ Tools</button>
     <div id="toolsMenu" class="tools-menu" hidden>
@@ -47,6 +46,7 @@
       <button id="duplicateBtn" type="button">🔍 Find Duplicates</button>
       <button id="qualityBtn" type="button">✓ Data Quality</button>
       <button id="selectModeBtn" type="button">☑ Select Rows</button>
+      <button id="deleteRowsBtn" type="button">🗑 Delete Rows</button>
       <button id="printBtn" type="button">🖨 Print View</button>
     </div>
     <div class="download-group" aria-label="Download options">
@@ -95,6 +95,8 @@
 
   <div id="toolPanel" class="tool-panel" hidden></div>
 
+  <div id="detectedHeadings" class="detected-headings" hidden></div>
+
   <div class="table-bottom-bar">
     <div id="recordInfo" class="record-info"></div>
     <div class="data-summary">
@@ -111,11 +113,18 @@
     <div class="pagination" id="pagination"></div>
   </div>
 
-  <div class="table-wrap">
-    <table id="dataTable">
-      <thead></thead>
-      <tbody><tr><td class="empty">Your spreadsheet data will appear here.</td></tr></tbody>
-    </table>
+  <div class="table-area">
+    <div id="tableHeadWrap" class="table-head-wrap">
+      <table id="headerTable"><thead></thead></table>
+    </div>
+    <div id="horizontalScroll" class="horizontal-scroll" aria-label="Horizontal table scroll">
+      <div id="horizontalScrollInner"></div>
+    </div>
+    <div class="table-wrap">
+      <table id="dataTable">
+        <tbody><tr><td class="empty">Your spreadsheet data will appear here.</td></tr></tbody>
+      </table>
+    </div>
   </div>
   <div class="developer">Spreadsheet Search Table • Developer: Ravi Navadkar</div>
 </div>
@@ -132,8 +141,14 @@
   const fileName=document.getElementById('fileName');
   const status=document.getElementById('status');
   const table=document.getElementById('dataTable');
-  const thead=table.querySelector('thead');
+  const headerTable=document.getElementById('headerTable');
+  const thead=headerTable.querySelector('thead');
   const tbody=table.querySelector('tbody');
+  const tableHeadWrap=document.getElementById('tableHeadWrap');
+  const tableWrap=document.querySelector('.table-area .table-wrap');
+  const horizontalScroll=document.getElementById('horizontalScroll');
+  const horizontalScrollInner=document.getElementById('horizontalScrollInner');
+  const detectedHeadings=document.getElementById('detectedHeadings');
   const columnGroup=document.getElementById('columnGroup');
   const pagination=document.getElementById('pagination');
   const recordInfo=document.getElementById('recordInfo');
@@ -143,7 +158,6 @@
   const filterCount=document.getElementById('filterCount');
   const columnCount=document.getElementById('columnCount');
   const resetViewBtn=document.getElementById('resetViewBtn');
-  const freezeBtn=document.getElementById('freezeBtn');
   const themeBtn=document.getElementById('themeBtn');
   const toolsBtn=document.getElementById('toolsBtn');
   const toolsMenu=document.getElementById('toolsMenu');
@@ -152,16 +166,18 @@
   const duplicateBtn=document.getElementById('duplicateBtn');
   const qualityBtn=document.getElementById('qualityBtn');
   const selectModeBtn=document.getElementById('selectModeBtn');
+  const deleteRowsBtn=document.getElementById('deleteRowsBtn');
   const printBtn=document.getElementById('printBtn');
   const zoomOutBtn=document.getElementById('zoomOutBtn');
   const zoomInBtn=document.getElementById('zoomInBtn');
   const zoomLabel=document.getElementById('zoomLabel');
 
-  let workbook=null, sheets={}, currentSheet='', headers=[], rows=[];
+  let workbook=null, sheets={}, currentSheet='', headers=[], rows=[], sheetHeadingRows=[];
   let selectedRows=new Set(), selectMode=false;
   let duplicateIndexes=new Set();
   let filters=[], sortCol=-1, sortDir=1, page=1, visibleCols=[], columnOrder=[];
-  let freezeFirst=false, darkMode=false, dataZoom=1;
+  let darkMode=false, dataZoom=1;
+  let horizontalPosition=0;
   const pageSize=50;
   const zoomSteps=Array.from({length:11},(_,i)=>(50+i*10)/100);
 
@@ -171,19 +187,96 @@
 
   function normalize(v){ return String(v ?? '').toLowerCase().trim(); }
 
+  function detectHeaderRow(data){
+    if(!data.length) return 0;
+
+    const limit=Math.min(data.length,20);
+    let bestIndex=0;
+    let bestScore=-Infinity;
+
+    for(let r=0;r<limit;r++){
+      const row=Array.isArray(data[r])?data[r]:[];
+      const values=row.map(v=>String(v ?? '').trim());
+      const nonEmpty=values.filter(Boolean);
+      if(!nonEmpty.length) continue;
+
+      const unique=new Set(nonEmpty.map(v=>v.toLowerCase())).size;
+      const textCount=nonEmpty.filter(v=>isNaN(Number(v.replace(/,/g,'')))).length;
+      const textRatio=textCount/nonEmpty.length;
+      const width=nonEmpty.length;
+
+      let score=width*4 + unique*2 + textRatio*6;
+
+      // A likely title row usually has only one or two populated cells.
+      if(width===1) score-=10;
+      if(width===2) score-=3;
+
+      // Prefer rows followed by another populated row.
+      if(r+1<data.length){
+        const next=Array.isArray(data[r+1])?data[r+1]:[];
+        const nextCount=next.map(v=>String(v ?? '').trim()).filter(Boolean).length;
+        if(nextCount>=Math.max(2,Math.floor(width*0.5))) score+=5;
+      }
+
+      if(score>bestScore){
+        bestScore=score;
+        bestIndex=r;
+      }
+    }
+    return bestIndex;
+  }
+
+  function renderDetectedHeadings(){
+    if(!detectedHeadings) return;
+    detectedHeadings.innerHTML='';
+
+    const meaningful=sheetHeadingRows
+      .map(r=>(Array.isArray(r)?r:[]).map(v=>String(v ?? '').trim()).filter(Boolean).join(' • '))
+      .filter(Boolean);
+
+    if(!meaningful.length){
+      detectedHeadings.hidden=true;
+      return;
+    }
+
+    const title=document.createElement('div');
+    title.className='detected-headings-title';
+    title.textContent='Spreadsheet Heading / Title Rows';
+    detectedHeadings.appendChild(title);
+
+    meaningful.forEach(text=>{
+      const row=document.createElement('div');
+      row.className='detected-heading-row';
+      row.textContent=text;
+      detectedHeadings.appendChild(row);
+    });
+    detectedHeadings.hidden=false;
+  }
+
   function loadSheet(name){
     currentSheet=name;
     const data=sheets[name] || [];
-    if(!data.length){headers=[];rows=[];render();return;}
+    if(!data.length){
+      headers=[];rows=[];sheetHeadingRows=[];
+      render();
+      return;
+    }
 
+    const headerRowIndex=detectHeaderRow(data);
+    const headerSource=Array.isArray(data[headerRowIndex])?data[headerRowIndex]:[];
     const maxCols=Math.max(...data.map(r=>Array.isArray(r)?r.length:0),0);
 
     headers=Array.from({length:maxCols},(_,i)=>{
-      const h=data[0]?.[i];
+      const h=headerSource[i];
       return String(h ?? '').trim() || `Column ${i+1}`;
     });
 
-    rows=data.slice(1).map(r=>headers.map((_,i)=>Array.isArray(r)?(r[i] ?? ''):''));
+    // Rows above the detected header are treated as title/heading rows and
+    // displayed separately above the data table.
+    sheetHeadingRows=data.slice(0,headerRowIndex);
+
+    rows=data.slice(headerRowIndex+1)
+      .map(r=>headers.map((_,i)=>Array.isArray(r)?(r[i] ?? ''):''));
 
     filters=Array(headers.length).fill('');
     visibleCols=Array(headers.length).fill(true);
@@ -192,6 +285,7 @@
     sortDir=1;
     page=1;
     duplicateIndexes=new Set();
+    selectedRows.clear();
     render();
   }
 
@@ -269,12 +363,13 @@
   }
 
   function applyViewOptions(){
-    table.classList.toggle('freeze-first',freezeFirst);
-    freezeBtn.textContent=freezeFirst?'🧊 Unfreeze First':'🧊 Freeze First';
     table.style.setProperty('--data-font-scale',dataZoom);
     if(zoomLabel) zoomLabel.textContent=Math.round(dataZoom*100)+'%';
     if(zoomOutBtn) zoomOutBtn.disabled=dataZoom<=zoomSteps[0];
     if(zoomInBtn) zoomInBtn.disabled=dataZoom>=zoomSteps[zoomSteps.length-1];
+    if(horizontalScroll && horizontalScrollInner){
+      horizontalScrollInner.style.width=Math.max(headerTable.scrollWidth,table.scrollWidth)+'px';
+    }
   }
 
   function updateFilterSummary(){
@@ -285,6 +380,7 @@
 
   function render(){
     renderColumnVisibility();
+    renderDetectedHeadings();
     thead.innerHTML='';
     tbody.innerHTML='';
     pagination.innerHTML='';
@@ -357,6 +453,7 @@
       input.addEventListener('input',e=>{
         const columnIndex=Number(e.currentTarget.dataset.columnIndex);
         filters[columnIndex]=e.currentTarget.value;
+        horizontalPosition=horizontalScroll ? horizontalScroll.scrollLeft : horizontalPosition;
         page=1;
         renderBodyOnly();
       });
@@ -372,31 +469,59 @@
 
   function autoAdjustColumns(){
     if(!headers.length) return;
+
     const headerCells=[...thead.querySelectorAll('.head-row th')];
     const filterCells=[...thead.querySelectorAll('.filter-row th')];
     const bodyRows=[...tbody.querySelectorAll('tr')];
+    const off=selectMode?1:0;
+    let totalWidth=selectMode?46:0;
+
     columnOrder.forEach((colIndex,pos)=>{
-      const off=selectMode?1:0;
-      const th=headerCells[pos+off], fth=filterCells[pos+off];
+      const th=headerCells[pos+off];
+      const fth=filterCells[pos+off];
       if(!th) return;
+
       let longest=String(headers[colIndex]||'').length;
       const fi=fth?.querySelector('input');
       if(fi) longest=Math.max(longest,fi.value.length,8);
+
+      // Only actual records are measured here. Title/heading rows are outside `rows`.
       bodyRows.slice(0,50).forEach(tr=>{
         const cell=tr.cells[pos+off];
         if(cell) longest=Math.max(longest,String(cell.textContent||'').length);
       });
+
       const width=Math.min(420,Math.max(120,longest*8+30));
       th.style.width=th.style.minWidth=width+'px';
       if(fth) fth.style.width=fth.style.minWidth=width+'px';
+
       bodyRows.forEach(tr=>{
         const cell=tr.cells[pos+off];
         if(cell) cell.style.width=cell.style.minWidth=width+'px';
       });
+
+      totalWidth+=width;
+    });
+
+    const finalWidth=Math.max(totalWidth,tableWrap.clientWidth||0);
+    headerTable.style.width=finalWidth+'px';
+    headerTable.style.minWidth=finalWidth+'px';
+    table.style.width=finalWidth+'px';
+    table.style.minWidth=finalWidth+'px';
+
+    if(horizontalScrollInner) horizontalScrollInner.style.width=finalWidth+'px';
+
+    requestAnimationFrame(()=>{
+      const maxScroll=Math.max(0,horizontalScroll.scrollWidth-horizontalScroll.clientWidth);
+      horizontalPosition=Math.min(horizontalPosition,maxScroll);
+      horizontalScroll.scrollLeft=horizontalPosition;
+      tableHeadWrap.scrollLeft=horizontalPosition;
+      tableWrap.scrollLeft=horizontalPosition;
     });
   }
 
   function renderBodyOnly(){
+    horizontalPosition=horizontalScroll ? horizontalScroll.scrollLeft : horizontalPosition;
     const all=filteredRows();
     const total=all.length;
     const pages=Math.max(1,Math.ceil(total/pageSize));
@@ -453,6 +578,60 @@
           });
           td.innerHTML=cellHtml;
           if(visibleCols[i]===false) td.classList.add('hidden-col');
+
+          // Double-click any visible cell to edit its underlying value directly in the same cell.
+          td.addEventListener('dblclick',()=>{
+            if(td.classList.contains('editing-cell')) return;
+
+            const original=String(rows[rowIndex][i] ?? '');
+            let finished=false;
+            td.classList.add('editing-cell');
+            td.textContent=original;
+            td.contentEditable='true';
+            td.spellcheck=false;
+            // Keep the existing table/cell width unchanged while editing.
+            td.focus();
+
+            // Place the cursor/selection inside the existing cell text.
+            const range=document.createRange();
+            range.selectNodeContents(td);
+            const sel=window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+
+            const finish=(save)=>{
+              if(finished) return;
+              finished=true;
+              const value=td.textContent;
+              td.contentEditable='false';
+              td.removeEventListener('keydown',onKey);
+              td.removeEventListener('blur',onBlur);
+              td.classList.remove('editing-cell');
+              if(save) rows[rowIndex][i]=value;
+              else rows[rowIndex][i]=original;
+              renderBodyOnly();
+            };
+
+            const onKey=e=>{
+              // Keep arrow keys inside the editable cell so they never reach the page-level navigation handler.
+              if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)){
+                e.stopPropagation();
+                return;
+              }
+              if(e.key==='Enter'){
+                e.preventDefault();
+                finish(true);
+              }else if(e.key==='Escape'){
+                e.preventDefault();
+                finish(false);
+              }
+            };
+            const onBlur=()=>finish(true);
+
+            td.addEventListener('keydown',onKey);
+            td.addEventListener('blur',onBlur);
+          });
+
           tr.appendChild(td);
         });
 
@@ -1030,11 +1209,10 @@
     filters=Array(headers.length).fill('');
     visibleCols=Array(headers.length).fill(true);
     columnOrder=Array.from({length:headers.length},(_,i)=>i);
-    sortCol=-1; sortDir=1; page=1; freezeFirst=false; dataZoom=1; duplicateIndexes=new Set();
+    sortCol=-1; sortDir=1; page=1; dataZoom=1; duplicateIndexes=new Set();
     render();
   });
 
-  freezeBtn.addEventListener('click',()=>{freezeFirst=!freezeFirst;applyViewOptions();});
   themeBtn.addEventListener('click',()=>{
     darkMode=!darkMode;
     document.body.classList.toggle('dark-mode',darkMode);
@@ -1084,7 +1262,49 @@
     toolsMenu.hidden=true;
     render();
   });
+
+  deleteRowsBtn.addEventListener('click',()=>{
+    if(!headers.length){
+      alert('Please upload a spreadsheet first.');
+      return;
+    }
+    if(!selectedRows.size){
+      alert('Please turn on Select Rows and select one or more records first.');
+      return;
+    }
+
+    const count=selectedRows.size;
+    if(!confirm(`Delete ${count} selected record${count===1?'':'s'}? This cannot be undone.`)) return;
+
+    const indexes=[...selectedRows].sort((a,b)=>b-a);
+    indexes.forEach(i=>{
+      if(i>=0 && i<rows.length) rows.splice(i,1);
+    });
+
+    selectedRows.clear();
+    duplicateIndexes=new Set();
+    page=1;
+    render();
+  });
   printBtn.addEventListener('click',()=>{toolsMenu.hidden=true;printView();});
+
+  horizontalScroll.addEventListener('scroll',()=>{
+    horizontalPosition=horizontalScroll.scrollLeft;
+    tableHeadWrap.scrollLeft=horizontalPosition;
+    tableWrap.scrollLeft=horizontalPosition;
+  });
+
+  tableWrap.addEventListener('scroll',()=>{
+    if(Math.abs(horizontalPosition-tableWrap.scrollLeft)>0.5){
+      horizontalPosition=tableWrap.scrollLeft;
+      horizontalScroll.scrollLeft=horizontalPosition;
+      tableHeadWrap.scrollLeft=horizontalPosition;
+    }
+  });
+
+  window.addEventListener('resize',()=>{
+    autoAdjustColumns();
+  });
 
   document.addEventListener('click',(e)=>{
     if(!toolsMenu.contains(e.target) && e.target!==toolsBtn) toolsMenu.hidden=true;
@@ -1100,9 +1320,9 @@
       globalSearch.value=''; page=1; renderBodyOnly();
     }else if(e.ctrlKey && e.key.toLowerCase()==='e'){
       e.preventDefault(); exportExcelBtn.click();
-    }else if(e.key==='ArrowLeft' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){
+    }else if(e.key==='ArrowLeft' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName) && !document.activeElement.isContentEditable){
       if(page>1){page--;renderBodyOnly();}
-    }else if(e.key==='ArrowRight' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)){
+    }else if(e.key==='ArrowRight' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName) && !document.activeElement.isContentEditable){
       const pages=Math.max(1,Math.ceil(filteredRows().length/pageSize));
       if(page<pages){page++;renderBodyOnly();}
     }

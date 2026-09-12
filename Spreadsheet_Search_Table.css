@@ -1,3 +1,4 @@
+:root{--accent:#2563eb;--accent-soft:#eef4ff;--accent-text:#1d4ed8}
 *{box-sizing:border-box}
   body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:#f4f7fb;color:#1f2937}
   .app{max-width:1600px;margin:0 auto;padding:22px}
@@ -109,8 +110,6 @@
 
 /* ===== Professional usability upgrades ===== */
 .search-hit{background:#fde68a;border-radius:3px;padding:0 1px}
-.freeze-first th:first-child,.freeze-first td:first-child{position:sticky;left:0;z-index:4;background:inherit;box-shadow:2px 0 5px rgba(15,23,42,.10)}
-.freeze-first thead th:first-child{z-index:7;background:#eef4ff}
 .btn{transition:transform .12s,box-shadow .12s}.btn:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(15,23,42,.08)}
 body.dark-mode{background:#0f172a;color:#e5e7eb}
 body.dark-mode .toolbar,body.dark-mode .file-info,body.dark-mode .record-summary span,body.dark-mode .table-wrap,body.dark-mode .sheet-tab{background:#172033;color:#e5e7eb;border-color:#334155}
@@ -410,4 +409,126 @@ body.dark-mode .duplicate-summary.no-duplicates{background:#052e16;border-color:
 body.dark-mode .duplicate-item{background:#111827}
 @media(max-width:700px){
   .duplicate-item{grid-template-columns:1fr}
+}
+
+
+/* ===== Detected heading rows and header-separated horizontal scrollbar ===== */
+.detected-headings{
+  background:white;
+  border:1px solid #dbe3ef;
+  border-left:4px solid var(--accent);
+  border-radius:10px;
+  padding:8px 12px;
+  margin:0 0 8px;
+  box-shadow:0 2px 7px rgba(30,58,138,.05);
+}
+.detected-headings-title{
+  font-size:12px;
+  font-weight:800;
+  margin-bottom:4px;
+}
+.detected-heading-row{
+  font-size:13px;
+  color:#475569;
+  padding:2px 0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.table-area{
+  background:white;
+  border:1px solid #dbe3ef;
+  border-radius:14px;
+  overflow:hidden;
+  box-shadow:0 3px 12px rgba(30,58,138,.06);
+}
+.table-head-wrap{
+  overflow:hidden;
+  border-bottom:0;
+}
+.table-head-wrap table{
+  width:max-content;
+  min-width:100%;
+}
+.horizontal-scroll{
+  height:16px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  background:var(--accent-soft);
+  border-top:1px solid #dbe3ef;
+  border-bottom:1px solid #dbe3ef;
+  scrollbar-color:var(--accent) var(--accent-soft);
+}
+.horizontal-scroll>div{height:1px}
+.table-area>.table-wrap{
+  border:0;
+  border-radius:0;
+  box-shadow:none;
+  overflow-x:hidden;
+  overflow-y:auto;
+  max-height:calc(68vh - 70px);
+}
+.table-area #dataTable{
+  width:max-content;
+  min-width:100%;
+}
+.table-head-wrap th,.table-head-wrap td{
+  box-sizing:border-box;
+}
+.table-head-wrap thead th{
+  position:static;
+}
+.table-head-wrap .filter-row th{
+  position:static;
+}
+.table-head-wrap table,
+.table-area #dataTable{
+  margin:0;
+}
+body.dark-mode .detected-headings,
+body.dark-mode .table-area{background:#172033;border-color:#334155}
+body.dark-mode .detected-heading-row{color:#94a3b8}
+body.dark-mode .horizontal-scroll{background:#1f2b40;border-color:#334155;scrollbar-color:var(--accent) #1f2b40}
+body.dark-mode .table-head-wrap{background:#172033}
+body.dark-mode .table-area>.table-wrap{background:#172033}
+
+
+.toolbar,.file-info,.table-bottom-bar,.table-area,.detected-headings{
+  border-color:color-mix(in srgb,var(--accent) 18%,#dbe3ef);
+}
+.record-info{color:var(--accent-text)}
+.data-summary span{border-color:color-mix(in srgb,var(--accent) 16%,#dbe3ef)}
+
+/* ===== V4 table alignment fix ===== */
+.table-head-wrap table,
+.table-area #dataTable{
+  table-layout:fixed;
+  width:max-content;
+  min-width:100%;
+}
+.table-area>.table-wrap{
+  overflow-x:hidden;
+  overflow-y:auto;
+}
+.horizontal-scroll{
+  scrollbar-color:#94a3b8 #f1f5f9;
+}
+.horizontal-scroll::-webkit-scrollbar{height:14px}
+.horizontal-scroll::-webkit-scrollbar-track{background:#f1f5f9}
+.horizontal-scroll::-webkit-scrollbar-thumb{background:#94a3b8;border-radius:8px;border:3px solid #f1f5f9}
+body.dark-mode .horizontal-scroll{scrollbar-color:#64748b #1f2b40}
+body.dark-mode .horizontal-scroll::-webkit-scrollbar-track{background:#1f2b40}
+body.dark-mode .horizontal-scroll::-webkit-scrollbar-thumb{background:#64748b;border-color:#1f2b40}
+
+/* Final: centered column headings */
+.head-row th{text-align:center}
+
+
+/* Inline editing: keep the cell itself visually unchanged. */
+td.editing-cell {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre;
+  min-width: 0;
+  position: relative;
 }
